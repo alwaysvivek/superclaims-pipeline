@@ -36,7 +36,7 @@ def get_total_pages(pdf_filepath: str) -> int:
 
 def extract_thumbnails(pdf_filepath: str) -> list[str]:
     """Extract all pages as low-res thumbnails for UI."""
-    thumb_matrix = pymupdf.Matrix(30 / 72, 30 / 72)
+    thumb_matrix = pymupdf.Matrix(20 / 72, 20 / 72)
 
     with _open_pdf(pdf_filepath) as doc:
         return [
