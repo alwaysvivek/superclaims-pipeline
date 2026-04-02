@@ -8,6 +8,7 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_not_exception_type
 from groq import AuthenticationError
+import gc
 
 from graph.state import PipelineState
 from graph.schemas import PageClassification
@@ -127,6 +128,9 @@ class SegregatorAgent:
 
         tasks = [throttled_process(i) for i in range(total_pages)]
         results = await asyncio.gather(*tasks)
+        
+        # Explicitly free memory before state processing
+        gc.collect()
 
         for idx, result, error in results:
             if error:
