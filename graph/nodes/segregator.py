@@ -94,11 +94,16 @@ class SegregatorAgent:
         )
         llm_structured = llm.with_structured_output(PageClassification)
 
-        # Classify each page concurrently
+        # Classify each page concurrently with a semaphore to prevent API rate limit / 400 errors
         classifications: dict[str, list[int]] = {doc_type: [] for doc_type in DOCUMENT_TYPES}
         page_details = []
+        semaphore = asyncio.Semaphore(3)
 
-        tasks = [self._process_page(llm_structured, pdf_filepath, idx) for idx in range(total_pages)]
+        async def throttled_process(idx):
+            async with semaphore:
+                return await self._process_page(llm_structured, pdf_filepath, idx)
+
+        tasks = [throttled_process(i) for i in range(total_pages)]
         results = await asyncio.gather(*tasks)
 
         for idx, result, error in results:
