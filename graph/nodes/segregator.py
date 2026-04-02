@@ -117,10 +117,12 @@ class SegregatorAgent:
         # Classify each page concurrently with a semaphore to prevent API rate limit / 400 errors
         classifications: dict[str, list[int]] = {doc_type: [] for doc_type in DOCUMENT_TYPES}
         page_details = []
-        semaphore = asyncio.Semaphore(2)
+        semaphore = asyncio.Semaphore(1)
 
         async def throttled_process(idx):
             async with semaphore:
+                # Add a small pacing delay to prevent API burst limits
+                await asyncio.sleep(0.5)
                 return await self._process_page(llm, pdf_filepath, idx)
 
         tasks = [throttled_process(i) for i in range(total_pages)]
