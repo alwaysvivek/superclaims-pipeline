@@ -45,8 +45,8 @@ class SegregatorAgent:
             f"Retry {retry_state.attempt_number} for page classification..."
         ),
     )
-    async def _classify_page(self, llm_structured, image_b64: str) -> PageClassification:
-        """Classify a single page using the vision model and Pydantic schema."""
+    async def _classify_page(self, llm, image_b64: str) -> PageClassification:
+        """Classify a single page using the vision model and native JSON response format."""
         message = HumanMessage(
             content=[
                 {"type": "text", "text": SEGREGATOR_PROMPT},
@@ -56,13 +56,33 @@ class SegregatorAgent:
                 },
             ]
         )
-        result = await llm_structured.ainvoke([message])
-
-        # Simple normalization
-        if result.classification.lower().strip() not in DOCUMENT_TYPES:
-            result.classification = "other"
-
-        return result
+        
+        # Use native invoke with JSON mode
+        response = await llm.ainvoke([message])
+        
+        try:
+            # Parse the JSON string manually
+            data = json.loads(response.content)
+            
+            # Simple normalization
+            if data.get("classification", "").lower().strip() not in DOCUMENT_TYPES:
+                data["classification"] = "other"
+            
+            # Map to PageClassification pydantic for the rest of the flow
+            return PageClassification(
+                page=0, # Will be set by caller
+                classification=data.get("classification", "other"),
+                confidence=float(data.get("confidence", 0.0)),
+                reasoning=data.get("reasoning", "Parsed via JSON mode")
+            )
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            return PageClassification(
+                page=0,
+                classification="other",
+                confidence=0.0,
+                reasoning=f"JSON Parse Error: {str(e)}"
+            )
 
     async def _process_page(self, llm_structured, pdf_filepath: str, idx: int):
         """Extract and classify a single page."""
@@ -91,17 +111,17 @@ class SegregatorAgent:
             api_key=api_key,
             temperature=0.1,
             max_tokens=self.max_tokens,
+            model_kwargs={"response_format": {"type": "json_object"}}
         )
-        llm_structured = llm.with_structured_output(PageClassification)
 
         # Classify each page concurrently with a semaphore to prevent API rate limit / 400 errors
         classifications: dict[str, list[int]] = {doc_type: [] for doc_type in DOCUMENT_TYPES}
         page_details = []
-        semaphore = asyncio.Semaphore(1)
+        semaphore = asyncio.Semaphore(2)
 
         async def throttled_process(idx):
             async with semaphore:
-                return await self._process_page(llm_structured, pdf_filepath, idx)
+                return await self._process_page(llm, pdf_filepath, idx)
 
         tasks = [throttled_process(i) for i in range(total_pages)]
         results = await asyncio.gather(*tasks)
