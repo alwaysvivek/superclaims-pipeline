@@ -217,4 +217,3 @@ backend/venv/
 # Uploaded files
 uploads/
 *.pdf
-!final_image_protected.pdf
