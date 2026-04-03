@@ -1,149 +1,93 @@
-# SuperClaims Pipeline
+# SuperClaims AI Pipeline
 
-AI-powered claims processing pipeline using FastAPI and LangGraph with agent-based document classification and extraction.
+A production-grade FastAPI service that processes multi-page PDF medical claims using LangGraph. The workflow orchestrates intelligent document segregation and parallel multi-agent extraction using Groq's high-performance Large Language Models and Tesseract OCR.
 
-## Architecture
+## 🚀 Architecture
+This pipeline embraces Object-Oriented Programming (OOP) and a directed acyclic graph (DAG) routing architecture. 
 
+**Workflow Route:**
+```text
+START 
+  ↓
+[Segregator Agent] (Categorizes each page into 9 distinct medical classes via OCR + LLM)
+  ↓
+  ├──→ [ID Agent] (Extracts Patient Info & Policies)
+  ├──→ [Discharge Summary Agent] (Extracts Admission Dates, Physician, Diagnosis)
+  └──→ [Itemized Bill Agent] (Extracts Line Items & Total Cost)
+  ↓
+[Aggregator Node] (Safely merges parallel data states)
+  ↓
+ END
 ```
-START → [Segregator Agent] → [ID Agent]               → [Aggregator] → END
-                            → [Discharge Summary Agent] ↗
-                            → [Itemized Bill Agent]     ↗
-```
 
-### How It Works
+**Key Features:**
+- **Zero-Waste Processing:** The Segregator isolates pages by document type. Extraction agents only read the exact pages associated with their domain, massively reducing token burn.
+- **OCR-First Processing:** Native PyMuPDF + Tesseract integration smoothly handles purely scanned, non-text PDFs (like protected image scans) and feeds ultra-fast text prompts to Groq.
+- **BYOK (Bring Your Own Key):** Securely pass your API key per request in the endpoint form data without relying on insecure environment variable hardcoding.
 
-1. **Document Ingestion** — Claim PDF is uploaded via the API endpoint
-2. **Disk Streaming** — PDF is streamed to a temporary file in chunks (zero RAM spike, OOM-safe)
-3. **Segregation** — AI classifies each page concurrently (`asyncio.gather`) into one of 9 document types using Groq's vision model
-4. **Parallel Extraction** — Three specialized agents extract only their assigned pages directly from the disk file:
-   - **ID Agent** — Extracts patient name, DOB, policy number, ID details
-   - **Discharge Agent** — Extracts diagnosis, admission/discharge dates, physician info
-   - **Bill Agent** — Extracts itemized charges with line items and calculates totals (includes math hallucination guard)
-5. **Aggregation** — All results are combined into a single structured JSON response with validation checks
+## 🛠️ Tech Stack
+- **FastAPI**: Endpoint serving and async handling.
+- **LangGraph**: Stateful, parallel multi-agent orchestration.
+- **Langchain-Groq**: Deep integration with `llama-3.3-70b-versatile` for blazing-fast inference.
+- **PyMuPDF & PyTesseract**: Rapid local slicing of PDFs into images and localized text extraction.
 
-### Document Types (Segregator)
+## 📦 Installation & Setup
 
-| Type | Description |
-|------|-------------|
-| `claim_forms` | Insurance claim application forms |
-| `cheque_or_bank_details` | Cheques, bank account details |
-| `identity_document` | Aadhaar, PAN, passport, etc. |
-| `itemized_bill` | Hospital bills with cost breakdowns |
-| `discharge_summary` | Hospital discharge summaries |
-| `prescription` | Doctor prescriptions |
-| `investigation_report` | Lab/diagnostic reports |
-| `cash_receipt` | Payment receipts |
-| `other` | Unclassified documents |
-
-## Quick Start
-
-### 1. Prerequisites
-
-- Python 3.11+
-- [Groq API Key](https://console.groq.com/) — **Required.** This service uses a Bring Your Own Key (BYOK) model. You must provide your personal Groq API key with every request (see [API Reference](#api-reference) below).
-
-### 2. Setup & Run
-
+1. **Clone the repo and create a virtual environment**
 ```bash
-# Create and activate virtual environment
+git clone https://github.com/your-username/superclaims-pipeline.git
+cd superclaims-pipeline
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start the API server
-uvicorn main:app --reload --port 8000
+source venv/bin/activate
 ```
 
-The API will be available at `http://localhost:8000`.
+2. **Install System Dependencies (For OCR)**
+- **Mac**: `brew install tesseract`
+- **Linux**: `sudo apt-get install tesseract-ocr`
 
-### 3. Test It
+3. **Install Python Requirements**
+```bash
+pip install -r requirements.txt
+```
+
+## 🎯 Usage
+
+1. **Start the FastAPI Server**
+```bash
+python -m app.main
+```
+Server runs locally at `http://0.0.0.0:8000`.
+
+2. **Test the Endpoint**
+Using cURL or Postman, hit the `/api/process` endpoint.
 
 ```bash
-curl -X POST http://localhost:8000/api/process \
-  -F "claim_id=CLM-001" \
-  -F "api_key=gsk_YOUR_GROQ_API_KEY_HERE" \
-  -F "file=@path/to/claim.pdf"
+curl -X POST "http://127.0.0.1:8000/api/process" \
+     -F "claim_id=CLM-1002" \
+     -F "groq_api_key=gsk_YOUR_API_KEY_HERE" \
+     -F "file=@final_image_protected.pdf"
 ```
 
-> **Note:** The `api_key` field is required. Get a free key at [console.groq.com](https://console.groq.com/).
-
-## Tech Stack
-
-- **Framework:** FastAPI
-- **Orchestration:** LangGraph
-- **LLM Provider:** Groq (Llama 3.2 Vision)
-- **PDF Processing:** PyMuPDF
-- **Retry Logic:** Tenacity (exponential backoff)
-- **Async I/O:** aiofiles (chunked disk streaming)
-
-## API Reference
-
-### `POST /api/process`
-
-Process a PDF claim document.
-
-**Request** (multipart/form-data):
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `claim_id` | string | ✅ | Unique claim identifier |
-| `api_key` | string | ✅ | Your Groq API key ([get one here](https://console.groq.com/)) |
-| `file` | file | ✅ | PDF document to process |
-
-**Response** (JSON):
-```json
-{
-  "claim_id": "CLM-001",
-  "request_id": "a1b2c3d4-...",
-  "processed_at": "2026-04-01T00:00:00+00:00",
-  "total_pages": 10,
-  "document_classification": {
-    "summary": { "identity_document": 2, "discharge_summary": 3, "itemized_bill": 2 },
-    "page_details": [...]
-  },
-  "extracted_data": {
-    "identity": { "status": "success", "data": { "patient_name": "...", ... } },
-    "discharge_summary": { "status": "success", "data": { "diagnosis": "...", ... } },
-    "billing": { "status": "success", "data": { "line_items": [...], "grand_total": 0.0 } }
-  },
-  "validation": {
-    "billing": {
-      "math_match": true,
-      "discrepancy": 0.0
-    }
-  }
-}
-```
-
-### `GET /health`
-
-Health check endpoint. Returns `{"status": "ok"}`.
-
-## Project Structure
-
-```
-├── main.py                      # FastAPI application (ClaimProcessingApp class)
-├── requirements.txt             # Python dependencies
-├── graph/
-│   ├── state.py                 # LangGraph state definition
-│   ├── schemas.py               # Pydantic extraction schemas
-│   ├── workflow.py              # StateGraph orchestration
-│   ├── nodes/
-│   │   ├── base_agent.py        # BaseExtractionAgent (OOP base class)
-│   │   ├── segregator.py        # SegregatorAgent — AI page classifier
-│   │   ├── id_agent.py          # Identity extraction (inherits BaseExtractionAgent)
-│   │   ├── discharge_agent.py   # Discharge summary extraction (inherits BaseExtractionAgent)
-│   │   ├── bill_agent.py        # BillAgent — billing extraction with math verification
-│   │   └── aggregator.py        # Result combiner + hallucination check
-│   └── utils/
-│       ├── pdf_utils.py         # PDF → image utilities (disk-based extraction)
-│       └── logger.py            # Structured JSON logging with request correlation
-├── prompts/                     # LLM prompt templates
+## 📂 Project Structure
+```text
+.
+├── app/
+│   ├── agents/
+│   │   ├── base.py              # Parent constructor initializing ChatGroq
+│   │   ├── segregator.py        # Classifies pages via ThreadPool concurrency mapping
+│   │   ├── extractors.py        # ID, Discharge, and Bill dedicated agents
+│   │   └── aggregator.py        # Unifies and syncs parallel states
+│   ├── api/
+│   │   └── endpoints.py         # FastAPI POST route
+│   ├── core/
+│   │   └── config.py            # Pydantic BaseSettings
+│   ├── models/
+│   │   ├── schemas.py           # Endpoint Pydantic validation
+│   │   └── state.py             # LangGraph TypedDict definitions
+│   ├── services/
+│   │   ├── pdf_service.py       # Tesseract + PyMuPDF pipeline
+│   │   └── workflow.py          # StateGraph edge connections
+│   └── main.py                  # API Factory
+├── requirements.txt
 └── README.md
 ```
-
-## License
-
-MIT
-
