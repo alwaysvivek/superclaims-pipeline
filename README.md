@@ -68,6 +68,14 @@ curl -X POST "http://127.0.0.1:8000/api/process" \
      -F "file=@final_image_protected.pdf"
 ```
 
+## Deployment
+
+Deployment was attempted but not completed due to errors encountered during setup. 
+
+Given the assignment timeline, priority was given to completing and stabilizing the core document processing pipeline.
+
+The system runs fully in a local environment.
+
 ## 📂 Project Structure
 ```text
 .
